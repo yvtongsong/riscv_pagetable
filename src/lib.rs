@@ -9,6 +9,12 @@ pub struct PageTable {
     pgtbl: *mut RawPageTable,
 }
 
+impl PageTable {
+    pub fn new() -> Self {
+        RawPageTable::new()
+    }
+}
+
 #[repr(C, align(4096))]
 struct RawPageTable {
     entries: [RawPageTableEntry; 512]
@@ -119,7 +125,7 @@ impl RawPageTable {
             match self.walk(va + i * PAGE_SIZE_4K, false) {
                 Ok(pte) => {
                     if do_free {
-                        Page::free(pte.get_pa());
+                        RawPage::free(pte.get_pa());
                     }
                     pte.0 = 0;
                 },
@@ -173,19 +179,35 @@ impl RawPageTableEntry {
 }
 
 #[repr(C, align(4096))]
-struct Page([u8; PAGE_SIZE_4K]);
+struct RawPage([u8; PAGE_SIZE_4K]);
 
-impl Page {
-    fn new() -> Self {
-        Self([0; PAGE_SIZE_4K])
+impl RawPage {
+    fn new() -> Page {
+        let page = Box::into_raw(Box::new(Self([0; PAGE_SIZE_4K])));
+        let pa = PhysAddr::from_usize(page as usize);
+        Page { pa, page }
     }
     fn alloc() -> PhysAddr {
-        PhysAddr::from_usize(Box::into_raw(Box::new(Page::new)) as usize)
+        PhysAddr::from_usize(Box::into_raw(Box::new(RawPage::new)) as usize)
     }
     fn free(pa: PhysAddr) {
         unsafe {
             drop(Box::from_raw(pa.as_usize() as *mut Self));
         }
+    }
+}
+
+pub struct Page {
+    pa: PhysAddr,
+    page: *mut RawPage,
+}
+
+impl Page {
+    pub fn alloc() -> Self {
+        RawPage::new()
+    }
+    fn dealloc(self) {
+        RawPage::free(self.pa);
     }
 }
 
