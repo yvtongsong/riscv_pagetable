@@ -1,4 +1,5 @@
-use memory_addr::{PhysAddr, VirtAddr};
+use memory_addr::{MemoryAddr, PhysAddr, VirtAddr, PAGE_SIZE_4K};
+use permission::*;
 
 const MAXVA: usize = 1 << (9 + 9 + 9 + 12 - 1);
 
@@ -29,7 +30,7 @@ impl RawPageTable {
 
     /// Return the address of the PTE in page table
     /// that corresponds to virtual address va
-    pub fn walk(&mut self, va: VirtAddr, alloc: bool) -> Result<&RawPageTableEntry, ()> {
+    pub fn walk(&mut self, va: VirtAddr, alloc: bool) -> Result<&mut RawPageTableEntry, ()> {
         if va.as_usize() >= MAXVA {
             return Err(())
         }
@@ -45,7 +46,7 @@ impl RawPageTable {
                         return Err(());
                     }
                     let new_pagetable = RawPageTable::new();
-                    entry.set(new_pagetable.pa);
+                    entry.set(new_pagetable.pa, PTE_V);
                     pagetable = new_pagetable.pgtbl;
                 }
             }
@@ -90,6 +91,25 @@ impl RawPageTable {
             drop(Box::from_raw(self as *mut Self));
         }
     }
+
+    pub fn mappages(&mut self, va: VirtAddr, size: usize, pa: PhysAddr, perm: usize) -> Result<(), ()> {
+        if !va.is_aligned_4k() || !pa.is_aligned_4k() || size % PAGE_SIZE_4K != 0 {
+            return Err(());
+        }
+
+        for i in 0..size / PAGE_SIZE_4K {
+            match self.walk(va + i * PAGE_SIZE_4K, true) {
+                Ok(pte) => {
+                    if pte.is_v() {
+                        todo!()
+                    }
+                    pte.set(pa + i * PAGE_SIZE_4K, PTE_V | perm);
+                },
+                _ => todo!(),
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -97,18 +117,12 @@ impl RawPageTable {
 struct RawPageTableEntry(usize);
 
 impl RawPageTableEntry {
-    const PTE_V: usize = 1 << 0;
-    const PTE_R: usize = 1 << 1;
-    const PTE_W: usize = 1 << 2;
-    const PTE_X: usize = 1 << 3;
-    const PTE_U: usize = 1 << 4;
-
     const fn zero() -> Self {
         Self(0)
     }
 
-    const fn set(&mut self, pa: PhysAddr) {
-        self.0 = (pa.as_usize() >> 12) << 10 | Self::PTE_V;
+    const fn set(&mut self, pa: PhysAddr, perm: usize) {
+        self.0 = (pa.as_usize() >> 12) << 10 | PTE_V | perm;
     }
 
     const fn get_flags(&self) -> usize {
@@ -116,26 +130,34 @@ impl RawPageTableEntry {
     }
 
     const fn is_v(&self) -> bool {
-        self.get_flags() & Self::PTE_V == Self::PTE_V
+        self.get_flags() & PTE_V == PTE_V
     }
 
     const fn is_r(&self) -> bool {
-        self.get_flags() & Self::PTE_R == Self::PTE_R
+        self.get_flags() & PTE_R == PTE_R
     }
 
     const fn is_w(&self) -> bool {
-        self.get_flags() & Self::PTE_W == Self::PTE_W
+        self.get_flags() & PTE_W == PTE_W
     }
 
     const fn is_x(&self) -> bool {
-        self.get_flags() & Self::PTE_X == Self::PTE_X
+        self.get_flags() & PTE_X == PTE_X
     }
 
     const fn is_u(&self) -> bool {
-        self.get_flags() & Self::PTE_U == Self::PTE_U
+        self.get_flags() & PTE_U == PTE_U
     }
 
     const fn get_pa(&self) -> PhysAddr {
         PhysAddr::from_usize((self.0 >> 10) << 12)
     }
+}
+
+mod permission {
+    pub const PTE_V: usize = 1 << 0;
+    pub const PTE_R: usize = 1 << 1;
+    pub const PTE_W: usize = 1 << 2;
+    pub const PTE_X: usize = 1 << 3;
+    pub const PTE_U: usize = 1 << 4;
 }
