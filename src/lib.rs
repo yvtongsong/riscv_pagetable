@@ -92,18 +92,36 @@ impl RawPageTable {
         }
     }
 
-    pub fn mappages(&mut self, va: VirtAddr, size: usize, pa: PhysAddr, perm: usize) -> Result<(), ()> {
-        if !va.is_aligned_4k() || !pa.is_aligned_4k() || size % PAGE_SIZE_4K != 0 {
+    pub fn map(&mut self, va: VirtAddr, npages: usize, pa: PhysAddr, perm: usize) -> Result<(), ()> {
+        if !va.is_aligned_4k() || !pa.is_aligned_4k() {
             return Err(());
         }
 
-        for i in 0..size / PAGE_SIZE_4K {
+        for i in 0..npages {
             match self.walk(va + i * PAGE_SIZE_4K, true) {
                 Ok(pte) => {
                     if pte.is_v() {
                         todo!()
                     }
                     pte.set(pa + i * PAGE_SIZE_4K, PTE_V | perm);
+                },
+                _ => todo!(),
+            }
+        }
+        Ok(())
+    }
+
+    pub fn unmap(&mut self, va: VirtAddr, npages: usize, do_free: bool) -> Result<(), ()> {
+        if !va.is_aligned_4k() {
+            return Err(());
+        }
+        for i in 0..npages {
+            match self.walk(va + i * PAGE_SIZE_4K, false) {
+                Ok(pte) => {
+                    if do_free {
+                        Page::free(pte.get_pa());
+                    }
+                    pte.0 = 0;
                 },
                 _ => todo!(),
             }
@@ -151,6 +169,23 @@ impl RawPageTableEntry {
 
     const fn get_pa(&self) -> PhysAddr {
         PhysAddr::from_usize((self.0 >> 10) << 12)
+    }
+}
+
+#[repr(C, align(4096))]
+struct Page([u8; PAGE_SIZE_4K]);
+
+impl Page {
+    fn new() -> Self {
+        Self([0; PAGE_SIZE_4K])
+    }
+    fn alloc() -> PhysAddr {
+        PhysAddr::from_usize(Box::into_raw(Box::new(Page::new)) as usize)
+    }
+    fn free(pa: PhysAddr) {
+        unsafe {
+            drop(Box::from_raw(pa.as_usize() as *mut Self));
+        }
     }
 }
 
