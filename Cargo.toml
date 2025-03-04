@@ -1,0 +1,7 @@
+[package]
+name = "riscv_pagetable"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+memory_addr = "0.3.1"
